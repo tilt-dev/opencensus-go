@@ -521,6 +521,34 @@ func TestUnregisterReportsUsage(t *testing.T) {
 	}
 }
 
+func TestFlush(t *testing.T) {
+	restart()
+	ctx := context.Background()
+	SetReportingPeriod(time.Hour)
+
+	m1 := stats.Int64("measure", "desc", "unit")
+	view1 := &View{Name: "count", Measure: m1, Aggregation: Count()}
+
+	if err := Register(view1); err != nil {
+		t.Fatalf("cannot register: %v", err)
+	}
+
+	e := &countExporter{}
+	RegisterExporter(e)
+
+	stats.Record(ctx, m1.M(1))
+
+	if e.count != 0 {
+		t.Errorf("Expected 0, Actual: %d", e.count)
+	}
+
+	Flush()
+
+	if e.count != 1 {
+		t.Errorf("Expected 1, Actual: %d", e.count)
+	}
+}
+
 func TestWorkerRace(t *testing.T) {
 	restart()
 	ctx := context.Background()
