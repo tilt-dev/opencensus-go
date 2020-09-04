@@ -45,11 +45,12 @@ type worker struct {
 	views          map[string]*viewInternal
 	viewStartTimes map[*viewInternal]time.Time
 
-	timer      *time.Ticker
-	c          chan command
-	quit, done chan bool
-	mu         sync.RWMutex
-	r          *resource.Resource
+	reportingDuration time.Duration
+	timer             *time.Ticker
+	c                 chan command
+	quit, done        chan bool
+	mu                sync.RWMutex
+	r                 *resource.Resource
 
 	exportersMu sync.RWMutex
 	exporters   map[Exporter]struct{}
@@ -102,6 +103,10 @@ type Meter interface {
 	// Start causes the Meter to start processing Record calls and aggregating
 	// statistics as well as exporting data.
 	Start()
+
+	// Flush causes the Meter to send data to its exporter immediately.
+	Flush()
+
 	// Stop causes the Meter to stop processing calls and terminate data export.
 	Stop()
 
@@ -210,6 +215,22 @@ func (w *worker) Record(tags *tag.Map, ms interface{}, attachments map[string]in
 	w.c <- req
 }
 
+// Flush sends data to the exporter immediately.
+func Flush() {
+	defaultWorker.Flush()
+}
+
+// Flush sends data to the exporter immediately.
+// Context is used to allow cancelling if the flush takes too long.
+func (w *worker) Flush() {
+	req := &flushReq{
+		c: make(chan bool),
+	}
+
+	w.c <- req
+	<-req.c
+}
+
 // SetReportingPeriod sets the interval between reporting aggregated views in
 // the program. If duration is less than or equal to zero, it enables the
 // default behavior.
@@ -244,13 +265,14 @@ func (w *worker) SetReportingPeriod(d time.Duration) {
 // a single process.
 func NewMeter() Meter {
 	return &worker{
-		measures:       make(map[string]*measureRef),
-		views:          make(map[string]*viewInternal),
-		viewStartTimes: make(map[*viewInternal]time.Time),
-		timer:          time.NewTicker(defaultReportingDuration),
-		c:              make(chan command, 1024),
-		quit:           make(chan bool),
-		done:           make(chan bool),
+		measures:          make(map[string]*measureRef),
+		views:             make(map[string]*viewInternal),
+		viewStartTimes:    make(map[*viewInternal]time.Time),
+		reportingDuration: defaultReportingDuration,
+		timer:             time.NewTicker(defaultReportingDuration),
+		c:                 make(chan command, 1024),
+		quit:              make(chan bool),
+		done:              make(chan bool),
 
 		exporters: make(map[Exporter]struct{}),
 	}
